@@ -1,0 +1,256 @@
+<html>
+    <head>
+      <script> 
+/**
+* author Remy Sharp
+* url http://remysharp.com/tag/marquee
+*/
+
+(function ($) {
+    $.fn.marquee = function (klass) {
+        var newMarquee = [],
+            last = this.length;
+
+        // works out the left or right hand reset position, based on scroll
+        // behavior, current direction and new direction
+        function getReset(newDir, marqueeRedux, marqueeState) {
+            var behavior = marqueeState.behavior, width = marqueeState.width, dir = marqueeState.dir;
+            var r = 0;
+            if (behavior == 'alternate') {
+                r = newDir == 1 ? marqueeRedux[marqueeState.widthAxis] - (width*2) : width;
+            } else if (behavior == 'slide') {
+                if (newDir == -1) {
+                    r = dir == -1 ? marqueeRedux[marqueeState.widthAxis] : width;
+                } else {
+                    r = dir == -1 ? marqueeRedux[marqueeState.widthAxis] - (width*2) : 0;
+                }
+            } else {
+                r = newDir == -1 ? marqueeRedux[marqueeState.widthAxis] : 0;
+            }
+            return r;
+        }
+
+        // single "thread" animation
+        function animateMarquee() {
+            var i = newMarquee.length,
+                marqueeRedux = null,
+                $marqueeRedux = null,
+                marqueeState = {},
+                newMarqueeList = [],
+                hitedge = false;
+                
+            while (i--) {
+                marqueeRedux = newMarquee[i];
+                $marqueeRedux = $(marqueeRedux);
+                marqueeState = $marqueeRedux.data('marqueeState');
+                
+                if ($marqueeRedux.data('paused') !== true) {
+                    // TODO read scrollamount, dir, behavior, loops and last from data
+                    marqueeRedux[marqueeState.axis] += (marqueeState.scrollamount * marqueeState.dir);
+
+                    // only true if it's hit the end
+                    hitedge = marqueeState.dir == -1 ? marqueeRedux[marqueeState.axis] <= getReset(marqueeState.dir * -1, marqueeRedux, marqueeState) : marqueeRedux[marqueeState.axis] >= getReset(marqueeState.dir * -1, marqueeRedux, marqueeState);
+                    
+                    if ((marqueeState.behavior == 'scroll' && marqueeState.last == marqueeRedux[marqueeState.axis]) || (marqueeState.behavior == 'alternate' && hitedge && marqueeState.last != -1) || (marqueeState.behavior == 'slide' && hitedge && marqueeState.last != -1)) {                        
+                        if (marqueeState.behavior == 'alternate') {
+                            marqueeState.dir *= -1; // flip
+                        }
+                        marqueeState.last = -1;
+
+                        $marqueeRedux.trigger('stop');
+
+                        marqueeState.loops--;
+                        if (marqueeState.loops === 0) {
+                            if (marqueeState.behavior != 'slide') {
+                                marqueeRedux[marqueeState.axis] = getReset(marqueeState.dir, marqueeRedux, marqueeState);
+                            } else {
+                                // corrects the position
+                                marqueeRedux[marqueeState.axis] = getReset(marqueeState.dir * -1, marqueeRedux, marqueeState);
+                            }
+
+                            $marqueeRedux.trigger('end');
+                        } else {
+                            // keep this marquee going
+                            newMarqueeList.push(marqueeRedux);
+                            $marqueeRedux.trigger('start');
+                            marqueeRedux[marqueeState.axis] = getReset(marqueeState.dir, marqueeRedux, marqueeState);
+                        }
+                    } else {
+                        newMarqueeList.push(marqueeRedux);
+                    }
+                    marqueeState.last = marqueeRedux[marqueeState.axis];
+
+                    // store updated state only if we ran an animation
+                    $marqueeRedux.data('marqueeState', marqueeState);
+                } else {
+                    // even though it's paused, keep it in the list
+                    newMarqueeList.push(marqueeRedux);                    
+                }
+            }
+
+            newMarquee = newMarqueeList;
+            
+            if (newMarquee.length) {
+                setTimeout(animateMarquee, 25);
+            }            
+        }
+        
+        // TODO consider whether using .html() in the wrapping process could lead to loosing predefined events...
+        this.each(function (i) {
+            var $marquee = $(this),
+                width = $marquee.attr('width') || $marquee.width(),
+                height = $marquee.attr('height') || $marquee.height(),
+                $marqueeRedux = $marquee.after('<div ' + (klass ? 'class="' + klass + '" ' : '') + 'style="display: block-inline; width: ' + width + 'px; height: ' + height + 'px; overflow: hidden;"><div style="float: left; white-space: nowrap;">' + $marquee.html() + '</div></div>').next(),
+                marqueeRedux = $marqueeRedux.get(0),
+                hitedge = 0,
+                direction = ($marquee.attr('direction') || 'left').toLowerCase(),
+                marqueeState = {
+                    dir : /down|right/.test(direction) ? -1 : 1,
+                    axis : /left|right/.test(direction) ? 'scrollLeft' : 'scrollTop',
+                    widthAxis : /left|right/.test(direction) ? 'scrollWidth' : 'scrollHeight',
+                    last : -1,
+                    loops : $marquee.attr('loop') || -1,
+                    scrollamount : $marquee.attr('scrollamount') || this.scrollAmount || 2,
+                    behavior : ($marquee.attr('behavior') || 'scroll').toLowerCase(),
+                    width : /left|right/.test(direction) ? width : height
+                };
+            
+            // corrects a bug in Firefox - the default loops for slide is -1
+            if ($marquee.attr('loop') == -1 && marqueeState.behavior == 'slide') {
+                marqueeState.loops = 1;
+            }
+
+            $marquee.remove();
+            
+            // add padding
+            if (/left|right/.test(direction)) {
+                $marqueeRedux.find('> div').css('padding', '0 ' + width + 'px');
+            } else {
+                $marqueeRedux.find('> div').css('padding', height + 'px 0');
+            }
+            
+            // events
+            $marqueeRedux.bind('stop', function () {
+                $marqueeRedux.data('paused', true);
+            }).bind('pause', function () {
+                $marqueeRedux.data('paused', true);
+            }).bind('start', function () {
+                $marqueeRedux.data('paused', false);
+            }).bind('unpause', function () {
+                $marqueeRedux.data('paused', false);
+            }).data('marqueeState', marqueeState); // finally: store the state
+            
+            // todo - rerender event allowing us to do an ajax hit and redraw the marquee
+
+            newMarquee.push(marqueeRedux);
+
+            marqueeRedux[marqueeState.axis] = getReset(marqueeState.dir, marqueeRedux, marqueeState);
+            $marqueeRedux.trigger('start');
+            
+            // on the very last marquee, trigger the animation
+            if (i+1 == last) {
+                animateMarquee();
+            }
+        });            
+
+        return $(newMarquee);
+    };
+  }(jQuery));
+    </script>
+        <title> Lucy's Insult Generator </title>
+
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/css/bootstrap.min.css">
+        <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/css/bootstrap-theme.min.css">
+
+        <script>
+          var things = [
+              "I have been called worse things by better people.",
+              "You are only here because your parents are pro-life.",
+              "Is your ass jealous of all the poop that comes out of your mouth?",
+                "I'm not saying you are fat, but it looks like you were poured into your clothes and God forgot to say when",
+                "I hope the rest of your day is as pleasant as you are.",
+                "It looks like your face was on fire and someone put it out with a wet brick.",
+                "Your birth certificate is an apology from the abortion clinic.",
+                "You are the personification of comic sans.",
+                "I do not have the time or the crayons to explain it to you",
+                "You look line someone dipped a tampon in skittles and glitter",
+              "If you were any less intelligent someone would have to water you three times a week.",
+              "I would insult you but nature did a better job.",
+              "Your face looks like god tried to turn it off and on again, but you froze.",
+              "2090 called. You are dead and you wasted your time on earth.",
+              "I bite my thumb at you sir!",
+              "I am jealous of all the people who haven’t met you",
+              "The only way to explain you, is to say that you mother dropped you when she first saw your face.",
+              "You are proof that God has a sense of humor.",
+              "Maybe if you ate makeup you could be pretty on the inside",
+              "You look like someone crossbred a gorilla and a gremlin.",
+              "You are not funny, however your life is.",              
+              "You scared the bogeyman as a child.",
+              "You are so ugly, you make blind people cry.",
+              "Your IQ does not make a respectable earthquake",
+              "I was Pro-life before I met you.",
+              "Honey Boo-Boos family wanted to adopt you as a baby.",
+              "I fart in your general direction!",
+              "You are the reason they put stupid warning labels on things.",
+              "If I wanted to kill myself I would jump from your ego to your IQ",
+              "The potato farm called, they want to model their potatoes after your face.",
+              "Your mother was a hamster and your father smelled of elderberries.",
+              "If I had two bullets and was locked in a room with you, Hitler and Bin Laden I would shoot you twice.",
+              "You are a waste of oxygen",
+              "You prove Charles Darwin wrong",
+              "Dont feel bad, you are doing your best",
+              "You are at the top of the bell curve.",
+              "May your day be as nice as you are",
+              "You have the perfect face for radio",
+              "What were your parents thinking?",
+              "You could not pour water out of a boot, if the instructions were written on the heel.",
+              "Your mother was not pregnant, she was constipated",
+              "I hope you step on a pile of legos",
+              "Why dont you do the universe a favor; Jump into the air, do a triple-backflip, and vanish into your own butthole.",
+              "You have a face of a slapped ass",
+              "You are as useless as tits on a dog, only twice as dumb and half as good looking.",
+              "I have seen better",
+              "Your face looks like the toilet after Mexican night",
+              "You are as useless as google plus.",
+              "I have stepped in puddles deeper than you",
+              "Your IQ could not make an earthquake that registered on the richter scale",
+              "You should have been swallowed",
+              "you are as usefull as a wet towel in a bushfire",
+              "You are an advert for abortion",
+              "Is your ass jealous of all the poop that comes out of your mouth?",
+              "You have a face only your mother could love",
+              "I wish we could be better strangers" 
+                        ];    
+          function randomThing() {
+            return things[Math.floor(Math.random()*things.length)];
+          }
+            function updateHeader() {
+            document.getElementById("header").innerHTML = randomThing();
+          }
+        </script>
+    </head>
+
+    <body>
+    <!-- Main jumbotron for a primary marketing message or call to action -->
+    <div class="jumbotron">
+      <div class="container">
+        <h1 id="header" style="font-size: 100px; font-family: Comic Sans MS; text-align: center; color: #b77aec">The World's Best Insult Generator </h1>
+        <p style= "text-align: center; font-family: Impact; font-size: 80px"> 
+          <button class="btn btn-primary btn-lg" onclick="updateHeader()">GENERATE ME AN INSULT!</button>
+        </p>
+
+        <p style="padding: 70;"> <marquee scrollamount="15" behavior="alternate" direction="right" width="1200"> This is the world's best insult generator, use it wisely. </marquee> </p>  
+        
+        <div align="center" style="z-index:9;visibility:visible;">
+          </div><style>HTML,BODY{cursor: url("http://downloads.totallyfreecursors.com/cursor_files/tail2.ani"), url("http://downloads.totallyfreecursors.com/thumbnails/tail2.gif"), auto;}</style>
+
+      </div>
+    </div>
+    <footer>
+      <a href= "http://hs.hact.io"> hs.hact.io </a>
+    </footer>
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.4/js/bootstrap.min.js"></script>
+    <!--<script src="js/main.js"></script>-->
+    </body>
+</html>
